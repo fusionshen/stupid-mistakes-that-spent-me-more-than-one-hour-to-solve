@@ -37,9 +37,75 @@ $ tree -L 3
 |-- de-api
 |   |-- Dockerfile
 |   |-- Dockerfile-dev
-|-- docker
-|   |-- README.md
-|   `-- docker-compose.yml
+`-- docker
+    |-- README.md
+    `-- docker-compose.yml
 
 ```
 
+我尝试去用docker-compose.yml和Dockerfile去构建容器,最初的设计是这样的
+```yml
+#docker/docker-compose.yml
+version: '2'
+services:
+  dentist_expert_api:
+    build:
+      context: .
+      dockerfile: ../de-api/Dockerfile
+    container_name: dentist_expert_api
+    ...
+```
+
+```DockerFile
+#de-api/DockerFile
+FROM library/golang:1.12.7
+
+ENV APP_DIR $GOPATH/src/github.com/fusionshen/dentist-expert
+
+RUN go get github.com/astaxie/beego && go get github.com/beego/bee
+
+RUN mkdir -p $APP_DIR
+ADD . $APP_DIR/de-api
+WORKDIR $APP_DIR/de-api
+
+RUN go get -v -d ./
+```
+
+单独构建`docker bulid .`是可以的，因为此时的context默认取的就是/de-api/,但是利用`docker-compose up -d`就是会报错，因为`context: .`传递过去了，这个构建问题断断续续花了我一两天的时间，等我查看了docker_practice.pdf，发现了上面的文字，理解了其中的道理，所以修改yml文件如下：
+```yml
+#docker/docker-compose.yml
+version: '2'
+services:
+  dentist_expert_api:
+    build:
+      context: $GOPATH/src/github.com/fusionshen/dentist-expert/de-api
+      dockerfile: Dockerfile
+    container_name: dentist_expert_api
+    ...
+```
+>另外，通过以前.netcore自动生成的DockerFile内容可以，DockerFile中可以WORKDIR可以随时改变
+```DockerFile
+FROM microsoft/dotnet:2.2-aspnetcore-runtime AS base
+WORKDIR /app
+EXPOSE 5000
+
+FROM microsoft/dotnet:2.2-sdk AS build
+WORKDIR /src
+COPY DataPlatformSI.WebAPI/DataPlatformSI.WebAPI.csproj DataPlatformSI.WebAPI/
+RUN dotnet restore DataPlatformSI.WebAPI/DataPlatformSI.WebAPI.csproj
+COPY . .
+WORKDIR /src/DataPlatformSI.WebAPI
+RUN dotnet build DataPlatformSI.WebAPI.csproj -c Release -o /app
+
+FROM build AS publish
+RUN dotnet publish DataPlatformSI.WebAPI.csproj -c Release -o /app
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app .
+ENV ASPNETCORE_URLS http://*:5000
+ENTRYPOINT ["dotnet", "DataPlatformSI.WebAPI.dll"]
+
+```
+
+**What a fucking stupid mistake!**
